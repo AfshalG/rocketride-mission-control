@@ -1,0 +1,26 @@
+# RocketRide local engine state / pulled schema + docs (not source)
+.rocketride/
+
+# Local-only working context — never in the public repo (preserved at docs/README-internal.md)
+docs/
+CLAUDE.md
+
+# Secrets — keys live in env vars / node UI only, never in git
+.env
+.env.*
+!.env.example
+
+# Node / Next.js (UI lands in ui/ during Slice 4)
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# Misc
+.DS_Store
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.vercel
