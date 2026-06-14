@@ -26,8 +26,39 @@ export default function Home() {
   const [result, setResult] = useState<VerifyResult | null>(null);
   const [error, setError] = useState("");
   const [runId, setRunId] = useState("");
+  const [prRef, setPrRef] = useState("");
+  const [prLoading, setPrLoading] = useState(false);
+  const [prMsg, setPrMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   const byLane = (id: string) => result?.lanes.find((l) => l.lane === id);
+
+  async function loadPr() {
+    if (!prRef.trim() || prLoading) return;
+    setPrLoading(true);
+    setPrMsg(null);
+    try {
+      const res = await fetch("/api/pr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ref: prRef }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to fetch PR.");
+      setTask(data.task);
+      setDiff(data.diff);
+      setStatus("idle");
+      setResult(null);
+      setError("");
+      setPrMsg({
+        kind: "ok",
+        text: `Loaded ${data.ref}: "${data.title}"${data.truncated ? " (diff truncated)" : ""} — review and run verification.`,
+      });
+    } catch (e) {
+      setPrMsg({ kind: "err", text: e instanceof Error ? e.message : "Failed to fetch PR." });
+    } finally {
+      setPrLoading(false);
+    }
+  }
 
   async function run() {
     if (!diff.trim() || status === "running") return;
@@ -97,6 +128,36 @@ export default function Home() {
         {/* ── console ── */}
         <section className="flex flex-col gap-5">
           <SectionLabel index="01" title="INPUT" note="task + git diff" />
+
+          {/* fetch a real PR */}
+          <div className="rounded-md border border-line bg-surface/40 p-3 flex flex-col gap-2">
+            <div className="flex items-baseline gap-2">
+              <label className="font-mono text-[11px] tracking-[0.18em] text-muted">FROM A GITHUB PR</label>
+              <span className="font-sans text-[12px] text-dim">— we fetch its title + diff</span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                value={prRef}
+                onChange={(e) => setPrRef(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") loadPr(); }}
+                placeholder="github.com/owner/repo/pull/123   ·   owner/repo#123"
+                className="flex-1 min-w-0 bg-surface border border-line rounded-md px-3 py-2 font-mono text-[12.5px] text-fg placeholder:text-dim outline-none focus:border-accent transition-colors"
+              />
+              <button
+                onClick={loadPr}
+                disabled={!prRef.trim() || prLoading}
+                className="shrink-0 font-mono text-[12px] tracking-[0.12em] text-fg border border-line-strong bg-surface-2 rounded-md px-4 hover:border-accent disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
+              >
+                {prLoading ? "LOADING…" : "LOAD PR"}
+              </button>
+            </div>
+            {prMsg && (
+              <div className={`font-sans text-[12px] leading-snug ${prMsg.kind === "ok" ? "text-pass" : "text-fail"}`}>
+                {prMsg.text}
+              </div>
+            )}
+            <div className="font-mono text-[10.5px] tracking-[0.06em] text-dim">— or fill it in manually below</div>
+          </div>
 
           <Field label="TASK" hint="what you told the AI agent to do">
             <input
