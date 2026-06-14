@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { SAMPLES } from "@/lib/samples";
+import { formatVerdictMarkdown } from "@/lib/markdown";
 import type { VerifyResult, LaneResult, Verdict } from "@/lib/types";
 import { LANE_ORDER, JUDGE_MODELS, DEFAULT_JUDGE_MODEL, DEFAULT_OPENROUTER_MODEL } from "@/lib/types";
 
@@ -30,10 +31,22 @@ export default function Home() {
   const [prRef, setPrRef] = useState("");
   const [prLoading, setPrLoading] = useState(false);
   const [prMsg, setPrMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const byLane = (id: string) => result?.summary.find((l) => l.lane === id);
   const modelLabel =
     model === "openrouter" ? `OpenRouter · ${orModel}` : JUDGE_MODELS.find((m) => m.id === model)?.label ?? model;
+
+  async function copyComment() {
+    if (!result) return;
+    try {
+      await navigator.clipboard.writeText(formatVerdictMarkdown(result, modelLabel));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* clipboard blocked */
+    }
+  }
 
   async function loadPr() {
     if (!prRef.trim() || prLoading) return;
@@ -368,6 +381,15 @@ export default function Home() {
                 top {result.deepCheckedCount} code file{result.deepCheckedCount > 1 ? "s" : ""} — lockfiles &amp; binaries skipped.
               </p>
             </div>
+          )}
+
+          {status === "done" && result && (
+            <button
+              onClick={copyComment}
+              className="mt-5 self-start font-mono text-[11px] tracking-[0.12em] text-muted border border-line rounded-md px-3.5 py-2 hover:border-accent hover:text-fg transition-colors"
+            >
+              {copied ? "✓ COPIED" : "COPY AS PR COMMENT"}
+            </button>
           )}
 
           <p className="mt-5 font-sans text-[12.5px] leading-relaxed text-dim">
