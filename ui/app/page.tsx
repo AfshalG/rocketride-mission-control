@@ -4,7 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { SAMPLES } from "@/lib/samples";
 import type { VerifyResult, LaneResult, Verdict } from "@/lib/types";
-import { LANE_ORDER, JUDGE_MODELS, DEFAULT_JUDGE_MODEL } from "@/lib/types";
+import { LANE_ORDER, JUDGE_MODELS, DEFAULT_JUDGE_MODEL, DEFAULT_OPENROUTER_MODEL } from "@/lib/types";
 
 type Status = "idle" | "running" | "done" | "error";
 
@@ -26,12 +26,14 @@ export default function Home() {
   const [error, setError] = useState("");
   const [runId, setRunId] = useState("");
   const [model, setModel] = useState(DEFAULT_JUDGE_MODEL);
+  const [orModel, setOrModel] = useState(DEFAULT_OPENROUTER_MODEL);
   const [prRef, setPrRef] = useState("");
   const [prLoading, setPrLoading] = useState(false);
   const [prMsg, setPrMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   const byLane = (id: string) => result?.summary.find((l) => l.lane === id);
-  const modelLabel = JUDGE_MODELS.find((m) => m.id === model)?.label ?? model;
+  const modelLabel =
+    model === "openrouter" ? `OpenRouter · ${orModel}` : JUDGE_MODELS.find((m) => m.id === model)?.label ?? model;
 
   async function loadPr() {
     if (!prRef.trim() || prLoading) return;
@@ -71,7 +73,7 @@ export default function Home() {
       const res = await fetch("/api/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task, diff, model }),
+        body: JSON.stringify({ task, diff, model, orModel }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Verification failed.");
@@ -211,6 +213,21 @@ export default function Home() {
               </button>
             ))}
           </div>
+
+          {model === "openrouter" && (
+            <div className="flex flex-col gap-1 -mt-2">
+              <input
+                value={orModel}
+                onChange={(e) => setOrModel(e.target.value)}
+                spellCheck={false}
+                placeholder="anthropic/claude-sonnet-4.6 · openai/gpt-5 · deepseek/deepseek-chat"
+                className="w-full bg-surface border border-line rounded-md px-3 py-2 font-mono text-[12px] text-fg placeholder:text-dim outline-none focus:border-accent transition-colors"
+              />
+              <span className="font-mono text-[10px] tracking-[0.06em] text-dim">
+                any OpenRouter model slug — needs ROCKETRIDE_OPENROUTER_KEY set in the engine
+              </span>
+            </div>
+          )}
 
           <button
             onClick={run}

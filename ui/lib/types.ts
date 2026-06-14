@@ -37,6 +37,7 @@ export interface JudgeModelOption {
 export const JUDGE_MODELS: JudgeModelOption[] = [
   { id: "gemini-flash-lite", label: "Gemini 3.1 Flash-Lite", note: "fast" },
   { id: "gemini-pro", label: "Gemini 3.1 Pro", note: "stronger" },
-  { id: "claude-sonnet", label: "Claude Sonnet 4.6", note: "needs key" },
+  { id: "openrouter", label: "OpenRouter", note: "any model · 1 key" },
 ];
 export const DEFAULT_JUDGE_MODEL = "gemini-flash-lite";
+export const DEFAULT_OPENROUTER_MODEL = "anthropic/claude-sonnet-4.6";
