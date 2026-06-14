@@ -26,3 +26,17 @@ export interface VerifyResult {
 }
 
 export const LANE_ORDER: LaneName[] = ["run", "secrets", "size", "judge"];
+
+export interface JudgeModelOption {
+  id: string;
+  label: string;
+  note?: string;
+}
+
+// The judge model is swappable — same pipeline, different LLM node (composition, not code).
+export const JUDGE_MODELS: JudgeModelOption[] = [
+  { id: "gemini-flash-lite", label: "Gemini 3.1 Flash-Lite", note: "fast" },
+  { id: "gemini-pro", label: "Gemini 3.1 Pro", note: "stronger" },
+  { id: "claude-sonnet", label: "Claude Sonnet 4.6", note: "needs key" },
+];
+export const DEFAULT_JUDGE_MODEL = "gemini-flash-lite";
