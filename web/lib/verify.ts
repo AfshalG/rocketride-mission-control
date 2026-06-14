@@ -3,13 +3,15 @@
  * Splits the diff by file; runs deterministic lanes (secrets, size) on every file and
  * the LLM lanes (run, judge) on the top code files; aggregates into one verdict + a matrix.
  */
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { RocketRideClient, Question } from "rocketride";
 import type { LaneName, Verdict, LaneResult, FileResult, VerifyResult } from "./types";
 import { LANE_ORDER } from "./types";
 import { splitDiffByFile, selectDeepFiles } from "./diff";
+// Pipes are embedded (imported) so they ship inside the serverless bundle on deploy —
+// not read from disk. Keep these in sync with /pipes/*.pipe (the canvas source of truth).
+import runCheckPipe from "./pipes/run-check.json";
+import verifierPipe from "./pipes/verifier.json";
 
 const MAX_DEEP = 6; // how many code files get the (expensive) LLM lanes
 const CONCURRENCY = 3; // files deep-checked in parallel
@@ -79,15 +81,14 @@ function laneFromAnswers(answers: unknown[], lane: LaneName): LaneResult | null 
   return found;
 }
 
-function pipePath(name: string): string {
-  const dir = process.env.MISSION_CONTROL_PIPES_DIR ?? path.resolve(process.cwd(), "..", "pipes");
-  return path.join(dir, name);
-}
-
 type UsePipeline = NonNullable<Parameters<RocketRideClient["use"]>[0]>["pipeline"];
 
-function loadPipe(name: string): UsePipeline {
-  const cfg = JSON.parse(readFileSync(pipePath(name), "utf8")) as Record<string, unknown>;
+function clone<T>(o: T): T {
+  return JSON.parse(JSON.stringify(o));
+}
+
+function freshRunPipe(): UsePipeline {
+  const cfg = clone(runCheckPipe) as Record<string, unknown>;
   cfg.project_id = randomUUID();
   return cfg as unknown as UsePipeline;
 }
@@ -100,7 +101,7 @@ const JUDGE_MODEL_NODES: Record<string, { node: string; model: string; keyEnv: s
 };
 
 function loadJudgePipe(modelKey: string, orModel?: string): UsePipeline {
-  const cfg = JSON.parse(readFileSync(pipePath("verifier.pipe"), "utf8")) as {
+  const cfg = clone(verifierPipe) as {
     components: Array<Record<string, unknown>>;
     [k: string]: unknown;
   };
@@ -240,7 +241,7 @@ export async function verify(input: { task: string; diff: string; model?: string
     const client = new RocketRideClient({ uri, auth: process.env.ROCKETRIDE_APIKEY ?? "local" });
     await client.connect();
     try {
-      const { token: runTok } = await client.use({ pipeline: loadPipe("run-check.pipe") });
+      const { token: runTok } = await client.use({ pipeline: freshRunPipe() });
       const { token: judgeTok } = await client.use({ pipeline: loadJudgePipe(input.model ?? "gemini-flash-lite", input.orModel) });
       await pool(deepFiles, CONCURRENCY, async (fd) => {
         const text = `TASK: ${input.task}\nFILE: ${fd.file}\nDIFF:\n${fd.diff}`;
