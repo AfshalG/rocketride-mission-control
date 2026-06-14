@@ -92,6 +92,33 @@ function loadPipe(name: string): UsePipeline {
   return cfg as unknown as UsePipeline;
 }
 
+// Swappable judge model: same pipeline, different LLM node. Gemini variants use the
+// existing key; Claude/GPT need their own key set in the engine env.
+const JUDGE_MODEL_NODES: Record<string, { node: string; model: string; keyEnv: string }> = {
+  "gemini-flash-lite": { node: "llm_gemini", model: "gemini-3.1-flash-lite-preview", keyEnv: "ROCKETRIDE_GEMINI_KEY" },
+  "gemini-pro": { node: "llm_gemini", model: "gemini-3.1-pro-preview", keyEnv: "ROCKETRIDE_GEMINI_KEY" },
+  "claude-sonnet": { node: "llm_anthropic", model: "claude-sonnet-4-6", keyEnv: "ROCKETRIDE_ANTHROPIC_KEY" },
+};
+
+function loadJudgePipe(modelKey: string): UsePipeline {
+  const cfg = JSON.parse(readFileSync(pipePath("verifier.pipe"), "utf8")) as {
+    components: Array<Record<string, unknown>>;
+    [k: string]: unknown;
+  };
+  cfg.project_id = randomUUID();
+  const m = JUDGE_MODEL_NODES[modelKey] ?? JUDGE_MODEL_NODES["gemini-flash-lite"];
+  const llm = cfg.components.find((c) => String(c.id).startsWith("llm_"));
+  if (llm) {
+    llm.provider = m.node;
+    llm.config = {
+      profile: "custom",
+      custom: { model: m.model, modelTotalTokens: 1000000, outputTokens: 8192, apikey: `\${${m.keyEnv}}` },
+      parameters: {},
+    };
+  }
+  return cfg as unknown as UsePipeline;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function runLane(client: any, token: string, text: string): Promise<LaneResult> {
   const q = new Question();
@@ -162,7 +189,7 @@ function aggregate(results: FileResult[]): Pick<VerifyResult, "summary" | "verdi
   return { summary, verdict, reason };
 }
 
-export async function verify(input: { task: string; diff: string }): Promise<VerifyResult> {
+export async function verify(input: { task: string; diff: string; model?: string }): Promise<VerifyResult> {
   const started = Date.now();
   const fileDiffs = splitDiffByFile(input.diff);
   const deepFiles = selectDeepFiles(fileDiffs, MAX_DEEP);
@@ -187,7 +214,7 @@ export async function verify(input: { task: string; diff: string }): Promise<Ver
     await client.connect();
     try {
       const { token: runTok } = await client.use({ pipeline: loadPipe("run-check.pipe") });
-      const { token: judgeTok } = await client.use({ pipeline: loadPipe("verifier.pipe") });
+      const { token: judgeTok } = await client.use({ pipeline: loadJudgePipe(input.model ?? "gemini-flash-lite") });
       await pool(deepFiles, CONCURRENCY, async (fd) => {
         const text = `TASK: ${input.task}\nFILE: ${fd.file}\nDIFF:\n${fd.diff}`;
         const fr = byFile.get(fd.file)!;

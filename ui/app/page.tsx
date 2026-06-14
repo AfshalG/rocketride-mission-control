@@ -4,7 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { SAMPLES } from "@/lib/samples";
 import type { VerifyResult, LaneResult, Verdict } from "@/lib/types";
-import { LANE_ORDER } from "@/lib/types";
+import { LANE_ORDER, JUDGE_MODELS, DEFAULT_JUDGE_MODEL } from "@/lib/types";
 
 type Status = "idle" | "running" | "done" | "error";
 
@@ -25,11 +25,13 @@ export default function Home() {
   const [result, setResult] = useState<VerifyResult | null>(null);
   const [error, setError] = useState("");
   const [runId, setRunId] = useState("");
+  const [model, setModel] = useState(DEFAULT_JUDGE_MODEL);
   const [prRef, setPrRef] = useState("");
   const [prLoading, setPrLoading] = useState(false);
   const [prMsg, setPrMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   const byLane = (id: string) => result?.summary.find((l) => l.lane === id);
+  const modelLabel = JUDGE_MODELS.find((m) => m.id === model)?.label ?? model;
 
   async function loadPr() {
     if (!prRef.trim() || prLoading) return;
@@ -69,7 +71,7 @@ export default function Home() {
       const res = await fetch("/api/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task, diff }),
+        body: JSON.stringify({ task, diff, model }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Verification failed.");
@@ -191,6 +193,25 @@ export default function Home() {
             ))}
           </div>
 
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[11px] tracking-[0.16em] text-dim mr-1">JUDGE&nbsp;MODEL</span>
+            {JUDGE_MODELS.map((mo) => (
+              <button
+                key={mo.id}
+                onClick={() => setModel(mo.id)}
+                title={mo.note}
+                className={`font-mono text-[12px] tracking-wide rounded-md px-3 py-1.5 border transition-colors ${
+                  model === mo.id
+                    ? "border-accent text-fg bg-surface"
+                    : "border-line text-muted hover:border-accent/60 hover:text-fg"
+                }`}
+              >
+                {mo.label}
+                {mo.note && <span className="text-dim"> · {mo.note}</span>}
+              </button>
+            ))}
+          </div>
+
           <button
             onClick={run}
             disabled={!diff.trim() || status === "running"}
@@ -208,11 +229,7 @@ export default function Home() {
           <SectionLabel
             index="02"
             title="VERDICT"
-            note={
-              status === "done" && result
-                ? `${runId} · ${(result.elapsedMs / 1000).toFixed(1)}s · ${result.totalFiles} file${result.totalFiles > 1 ? "s" : ""}`
-                : "4 parallel lanes"
-            }
+            note={status === "done" && result ? `REPORT ${runId}` : "4 parallel lanes"}
           />
 
           <div className="mt-4 rounded-lg border border-line bg-surface/50 overflow-hidden">
@@ -237,6 +254,13 @@ export default function Home() {
                   )}
                 </div>
               </div>
+              {status === "done" && result && (
+                <div className="mt-3 font-mono text-[10.5px] tracking-[0.1em] text-dim">
+                  JUDGE&nbsp;MODEL · <span className="text-muted">{modelLabel}</span> ·{" "}
+                  {(result.elapsedMs / 1000).toFixed(1)}s · {result.totalFiles} file
+                  {result.totalFiles > 1 ? "s" : ""}
+                </div>
+              )}
             </div>
 
             {/* lanes */}
