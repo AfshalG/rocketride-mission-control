@@ -10,12 +10,12 @@ produced — and a RocketRide pipeline fans out **parallel verification lanes**,
 synthesizes a single **PASS / FAIL** verdict with a confidence score and a one-line
 diagnosis.
 
-| Lane | RocketRide node | What it checks |
+| Lane | RocketRide nodes | What it checks |
 | --- | --- | --- |
-| **Run-check** | `tool_python` | Does the code actually run / lint / pass basic asserts? |
-| **Secrets** | `guardrails` + `anonymize` | Does the diff leak API keys, secrets, or PII? |
-| **Cost** | `anomaly_detector` | Runaway change size / token cost? |
-| **Judge** | `agent` + LLM | Is the change correct vs the stated task? |
+| **Run-check** | agent + `tool_python` | Does the code in the diff actually run / pass basic asserts? |
+| **Secrets** | agent + `tool_python` (regex) + `guardrails` | Leaked API keys (`sk-…`, `ghp_…`) or PII in the diff? |
+| **Cost / size** | agent + `tool_python` | Runaway diff size vs the task — the idea behind Claude Code's internal token-budget tracker, as a lane |
+| **Judge** | agent + LLM (Gemini) | Is the change correct vs the stated task? |
 
 Because the lanes run concurrently on RocketRide's C++ runtime, you also get per-lane
 latency and token-cost **traces for free** — no hand-rolled instrumentation.
