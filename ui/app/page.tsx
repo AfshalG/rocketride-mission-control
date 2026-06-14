@@ -3,10 +3,9 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { SAMPLES } from "@/lib/samples";
+import type { VerifyResult, LaneResult, Verdict } from "@/lib/types";
+import { LANE_ORDER } from "@/lib/types";
 
-type Verdict = "PASS" | "FAIL" | "ERROR";
-interface LaneResult { lane: string; verdict: Verdict; detail: string }
-interface VerifyResult { verdict: "PASS" | "FAIL"; reason: string; lanes: LaneResult[]; elapsedMs: number }
 type Status = "idle" | "running" | "done" | "error";
 
 const LANES = [
@@ -30,7 +29,7 @@ export default function Home() {
   const [prLoading, setPrLoading] = useState(false);
   const [prMsg, setPrMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
-  const byLane = (id: string) => result?.lanes.find((l) => l.lane === id);
+  const byLane = (id: string) => result?.summary.find((l) => l.lane === id);
 
   async function loadPr() {
     if (!prRef.trim() || prLoading) return;
@@ -211,7 +210,7 @@ export default function Home() {
             title="VERDICT"
             note={
               status === "done" && result
-                ? `REPORT ${runId} · ${(result.elapsedMs / 1000).toFixed(1)}s`
+                ? `${runId} · ${(result.elapsedMs / 1000).toFixed(1)}s · ${result.totalFiles} file${result.totalFiles > 1 ? "s" : ""}`
                 : "4 parallel lanes"
             }
           />
@@ -291,6 +290,45 @@ export default function Home() {
             </div>
           </div>
 
+          {status === "done" && result && result.totalFiles > 1 && (
+            <div className="mt-6">
+              <div className="flex items-center justify-between mb-2.5">
+                <span className="font-mono text-[12px] tracking-[0.22em] text-fg">FILES</span>
+                <span className="font-mono text-[10.5px] tracking-[0.08em] text-dim">
+                  {result.deepCheckedCount} of {result.totalFiles} deep-checked
+                </span>
+              </div>
+              <div className="rounded-lg border border-line bg-surface/40 overflow-hidden">
+                <div className="flex items-center gap-3 px-4 py-2 border-b border-line font-mono text-[10px] tracking-[0.12em] text-dim">
+                  <span className="flex-1">FILE</span>
+                  {["RUN", "SEC", "SIZE", "JDG"].map((h) => (
+                    <span key={h} className="w-9 text-center">{h}</span>
+                  ))}
+                </div>
+                <div className="divide-y divide-line/70 max-h-72 overflow-auto">
+                  {result.files.map((f) => (
+                    <div key={f.file} className="flex items-center gap-3 px-4 py-2.5">
+                      <span
+                        className="flex-1 min-w-0 truncate font-mono text-[12px] text-fg"
+                        title={f.file}
+                        style={{ direction: "rtl", textAlign: "left" }}
+                      >
+                        {f.file}
+                      </span>
+                      {LANE_ORDER.map((lane) => (
+                        <Cell key={lane} r={f.lanes[lane]} />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <p className="mt-2 font-sans text-[11.5px] text-dim">
+                Every file is scanned for secrets &amp; size; the LLM lanes (run · judge) deep-check the
+                top {result.deepCheckedCount} code file{result.deepCheckedCount > 1 ? "s" : ""} — lockfiles &amp; binaries skipped.
+              </p>
+            </div>
+          )}
+
           <p className="mt-5 font-sans text-[12.5px] leading-relaxed text-dim">
             <span className="text-muted">RUN-CHECK</span> and <span className="text-muted">JUDGE</span>{" "}
             execute on the RocketRide C++ runtime; <span className="text-muted">SECRETS</span> and{" "}
@@ -299,6 +337,16 @@ export default function Home() {
         </section>
       </main>
     </div>
+  );
+}
+
+function Cell({ r }: { r: LaneResult | null }) {
+  if (!r) return <span className="w-9 flex justify-center text-dim text-[12px]">–</span>;
+  const color = r.verdict === "PASS" ? "bg-pass" : r.verdict === "FAIL" ? "bg-fail" : "bg-amber";
+  return (
+    <span className="w-9 flex justify-center" title={`${r.verdict}: ${r.detail}`}>
+      <span className={`h-2 w-2 rounded-full ${color} shadow-[0_0_6px] shadow-current`} />
+    </span>
   );
 }
 

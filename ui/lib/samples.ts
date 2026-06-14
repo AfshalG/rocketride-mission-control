@@ -48,6 +48,39 @@ new file mode 100644
 +    return OPENAI_API_KEY`,
   },
   {
+    id: "multi",
+    label: "Multi-file PR",
+    hint: "4 files → per-file matrix pinpoints which file fails what",
+    task: "Add config helpers, an adder, and an is_even helper.",
+    diff: `diff --git a/config.py b/config.py
+new file mode 100644
+--- /dev/null
++++ b/config.py
+@@ -0,0 +1,2 @@
++API_KEY = "sk-proj-AbCdEf0123456789abcdef0123456789ABCDEF"
++def get_key(): return API_KEY
+diff --git a/math_utils.py b/math_utils.py
+new file mode 100644
+--- /dev/null
++++ b/math_utils.py
+@@ -0,0 +1,2 @@
++def add(a, b):
++    return a - b
+diff --git a/num.py b/num.py
+new file mode 100644
+--- /dev/null
++++ b/num.py
+@@ -0,0 +1,2 @@
++def is_even(n):
++    return n % 2 == 0
+diff --git a/package-lock.json b/package-lock.json
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1 +1 @@
+-  "version": "1.0.0"
++  "version": "1.0.1"`,
+  },
+  {
     id: "bloat",
     label: "Bloat",
     hint: "200-line diff for a one-line typo task → SIZE fails",
