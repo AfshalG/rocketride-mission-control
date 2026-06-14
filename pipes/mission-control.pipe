@@ -1,0 +1,270 @@
+{
+  "components": [
+    {
+      "id": "chat_1",
+      "provider": "chat",
+      "config": {
+        "hideForm": true,
+        "mode": "Source",
+        "parameters": {},
+        "type": "chat"
+      },
+      "ui": {
+        "position": {
+          "x": 20,
+          "y": 280
+        },
+        "measured": {
+          "width": 150,
+          "height": 66
+        },
+        "nodeType": "default",
+        "formDataValid": true
+      }
+    },
+    {
+      "id": "agent_run_1",
+      "provider": "agent_langchain",
+      "config": {
+        "agent_description": "Run-check lane: executes the diff's code in the python sandbox.",
+        "instructions": [
+          "You are the RUN-CHECK lane of a code-change verifier. The message contains a TASK and a DIFF (unified git diff). Use the python tool ONCE to execute the code added in the DIFF: define the added functions/classes, call them with simple representative inputs, and assert basic expected behaviour. If it raises or behaves wrongly, that is a failure.",
+          "OUTPUT RULE: call the python tool at most ONCE, then immediately reply with ONLY one minified JSON object and STOP — do not iterate, re-verify, or send more than one message. Format: {\"lane\":\"run\",\"verdict\":\"PASS or FAIL\",\"detail\":\"<what you ran and the outcome>\"}. No prose, no markdown, no backticks. PASS only if the code executes and behaves sensibly."
+        ],
+        "parameters": {}
+      },
+      "ui": {
+        "position": {
+          "x": 240,
+          "y": 40
+        },
+        "measured": {
+          "width": 150,
+          "height": 86
+        },
+        "nodeType": "default",
+        "formDataValid": true
+      },
+      "input": [
+        {
+          "lane": "questions",
+          "from": "chat_1"
+        }
+      ]
+    },
+    {
+      "id": "agent_secrets_1",
+      "provider": "agent_langchain",
+      "config": {
+        "agent_description": "Secrets lane: regex-scans the diff for hardcoded API keys.",
+        "instructions": [
+          "You are the SECRETS lane of a code-change verifier. The message contains a TASK and a DIFF. Use the python tool ONCE to run regular expressions over the DIFF text for hardcoded secrets / API keys: patterns like sk-[A-Za-z0-9]{16,}, ghp_[A-Za-z0-9]{20,}, AKIA[0-9A-Z]{16}, '-----BEGIN [A-Z ]*PRIVATE KEY-----', and assignments such as api_key=, secret=, password= followed by a long literal.",
+          "OUTPUT RULE: call the python tool at most ONCE, then immediately reply with ONLY one minified JSON object and STOP — do not iterate or send more than one message. Format: {\"lane\":\"secrets\",\"verdict\":\"PASS or FAIL\",\"detail\":\"<found or clean>\"}. No prose, no markdown, no backticks. verdict FAIL if any secret is found, else PASS."
+        ],
+        "parameters": {}
+      },
+      "ui": {
+        "position": {
+          "x": 240,
+          "y": 200
+        },
+        "measured": {
+          "width": 150,
+          "height": 86
+        },
+        "nodeType": "default",
+        "formDataValid": true
+      },
+      "input": [
+        {
+          "lane": "questions",
+          "from": "chat_1"
+        }
+      ]
+    },
+    {
+      "id": "agent_size_1",
+      "provider": "agent_langchain",
+      "config": {
+        "agent_description": "Size/cost lane: measures diff size and flags bloat (CC token-budget idea).",
+        "instructions": [
+          "You are the SIZE/COST lane of a code-change verifier, inspired by Claude Code's internal token-budget tracker. The message contains a TASK and a DIFF. Use the python tool ONCE to measure the DIFF: count added lines (lines starting with '+'), files changed, and total added characters. Judge whether the change is disproportionately large or bloated relative to the TASK.",
+          "OUTPUT RULE: call the python tool at most ONCE, then immediately reply with ONLY one minified JSON object and STOP — do not iterate or send more than one message. Format: {\"lane\":\"size\",\"verdict\":\"PASS or FAIL\",\"detail\":\"<metrics + judgment>\"}. No prose, no markdown, no backticks. verdict FAIL only if the diff is clearly bloated / runaway for the stated task, else PASS."
+        ],
+        "parameters": {}
+      },
+      "ui": {
+        "position": {
+          "x": 240,
+          "y": 360
+        },
+        "measured": {
+          "width": 150,
+          "height": 86
+        },
+        "nodeType": "default",
+        "formDataValid": true
+      },
+      "input": [
+        {
+          "lane": "questions",
+          "from": "chat_1"
+        }
+      ]
+    },
+    {
+      "id": "agent_judge_1",
+      "provider": "agent_langchain",
+      "config": {
+        "agent_description": "Judge lane: is the diff correct vs the stated task?",
+        "instructions": [
+          "You are the JUDGE lane of a code-change verifier. The message contains a TASK and a DIFF. Decide whether the DIFF correctly and completely accomplishes the TASK — consider correctness, completeness, and obvious bugs.",
+          "OUTPUT RULE: reply with ONLY one minified JSON object and STOP — exactly one message, no prose, no markdown, no backticks. Format: {\"lane\":\"judge\",\"verdict\":\"PASS or FAIL\",\"detail\":\"<reasoning>\"}."
+        ],
+        "parameters": {}
+      },
+      "ui": {
+        "position": {
+          "x": 240,
+          "y": 520
+        },
+        "measured": {
+          "width": 150,
+          "height": 86
+        },
+        "nodeType": "default",
+        "formDataValid": true
+      },
+      "input": [
+        {
+          "lane": "questions",
+          "from": "chat_1"
+        }
+      ]
+    },
+    {
+      "id": "tool_python_1",
+      "provider": "tool_python",
+      "config": {
+        "type": "tool_python",
+        "timeout": 30,
+        "allowedModules": []
+      },
+      "ui": {
+        "position": {
+          "x": 460,
+          "y": 640
+        },
+        "measured": {
+          "width": 150,
+          "height": 40
+        },
+        "nodeType": "default",
+        "formDataValid": true
+      },
+      "control": [
+        {
+          "classType": "tool",
+          "from": "agent_run_1"
+        },
+        {
+          "classType": "tool",
+          "from": "agent_secrets_1"
+        },
+        {
+          "classType": "tool",
+          "from": "agent_size_1"
+        }
+      ]
+    },
+    {
+      "id": "llm_1",
+      "provider": "llm_gemini",
+      "config": {
+        "profile": "custom",
+        "custom": {
+          "model": "gemini-3.1-flash-lite-preview",
+          "modelTotalTokens": 1000000,
+          "outputTokens": 8192,
+          "apikey": "${ROCKETRIDE_GEMINI_KEY}"
+        },
+        "parameters": {}
+      },
+      "ui": {
+        "position": {
+          "x": 460,
+          "y": 720
+        },
+        "measured": {
+          "width": 150,
+          "height": 66
+        },
+        "nodeType": "default",
+        "formDataValid": true
+      },
+      "control": [
+        {
+          "classType": "llm",
+          "from": "agent_run_1"
+        },
+        {
+          "classType": "llm",
+          "from": "agent_secrets_1"
+        },
+        {
+          "classType": "llm",
+          "from": "agent_size_1"
+        },
+        {
+          "classType": "llm",
+          "from": "agent_judge_1"
+        }
+      ]
+    },
+    {
+      "id": "response_answers_1",
+      "provider": "response_answers",
+      "config": {
+        "laneName": "answers"
+      },
+      "ui": {
+        "position": {
+          "x": 700,
+          "y": 280
+        },
+        "measured": {
+          "width": 150,
+          "height": 66
+        },
+        "nodeType": "default",
+        "formDataValid": true
+      },
+      "input": [
+        {
+          "lane": "answers",
+          "from": "agent_run_1"
+        },
+        {
+          "lane": "answers",
+          "from": "agent_secrets_1"
+        },
+        {
+          "lane": "answers",
+          "from": "agent_size_1"
+        },
+        {
+          "lane": "answers",
+          "from": "agent_judge_1"
+        }
+      ]
+    }
+  ],
+  "source": "chat_1",
+  "project_id": "a475efc5-b92f-44a7-8b7f-cea8186e4a20",
+  "viewport": {
+    "x": 0,
+    "y": 0,
+    "zoom": 1
+  },
+  "version": 1
+}
