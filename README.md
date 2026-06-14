@@ -49,7 +49,7 @@ pipeline stays small and the interesting work is in the *composition*, not the p
 
 ```
 pipes/      RocketRide pipeline definitions (.pipe) — run-check.pipe, verifier.pipe
-ui/         Next.js verdict-card app (App Router + the /api/verify orchestrator)
+web/        Next.js verdict-card app (App Router + the /api/verify orchestrator)
 ```
 
 ## Running it
@@ -67,7 +67,7 @@ The judge LLM uses a Gemini API key via the `ROCKETRIDE_GEMINI_KEY` environment 
 **2. The web app:**
 
 ```sh
-cd ui
+cd web
 npm install
 cp .env.example .env.local   # set ROCKETRIDE_URI to your engine's ws:// address
 npm run dev                  # http://localhost:3000

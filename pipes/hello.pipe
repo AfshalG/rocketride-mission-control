@@ -102,7 +102,7 @@
   "source": "chat_1",
   "project_id": "hello-0000-0000-0000-000000000000",
   "version": 1,
-  "docRevision": 2,
+  "docRevision": 3,
   "isLocked": false,
   "snapToGrid": true,
   "snapGridSize": [
