@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { SAMPLES } from "@/lib/samples";
 import { formatVerdictMarkdown } from "@/lib/markdown";
+import { loadHistory, pushHistory, clearHistory, type HistoryEntry } from "@/lib/history";
 import type { VerifyResult, LaneResult, Verdict } from "@/lib/types";
 import { LANE_ORDER, JUDGE_MODELS, DEFAULT_JUDGE_MODEL, DEFAULT_OPENROUTER_MODEL } from "@/lib/types";
 
@@ -32,10 +33,27 @@ export default function Home() {
   const [prLoading, setPrLoading] = useState(false);
   const [prMsg, setPrMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+
+  useEffect(() => {
+    setHistory(loadHistory());
+  }, []);
 
   const byLane = (id: string) => result?.summary.find((l) => l.lane === id);
   const modelLabel =
     model === "openrouter" ? `OpenRouter · ${orModel}` : JUDGE_MODELS.find((m) => m.id === model)?.label ?? model;
+
+  function restore(h: HistoryEntry) {
+    setTask(h.task);
+    setDiff(h.diff);
+    setModel(h.model);
+    setOrModel(h.orModel || DEFAULT_OPENROUTER_MODEL);
+    setRunId(h.id);
+    setResult(h.result);
+    setStatus("done");
+    setError("");
+    setPrMsg(null);
+  }
 
   async function copyComment() {
     if (!result) return;
@@ -81,7 +99,8 @@ export default function Home() {
     setStatus("running");
     setError("");
     setResult(null);
-    setRunId(Math.random().toString(16).slice(2, 6).toUpperCase());
+    const id = Math.random().toString(16).slice(2, 6).toUpperCase();
+    setRunId(id);
     try {
       const res = await fetch("/api/verify", {
         method: "POST",
@@ -92,6 +111,7 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error ?? "Verification failed.");
       setResult(data);
       setStatus("done");
+      setHistory(pushHistory({ id, ts: Date.now(), task, diff, model, orModel, result: data }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Verification failed.");
       setStatus("error");
@@ -397,6 +417,39 @@ export default function Home() {
             execute on the RocketRide C++ runtime; <span className="text-muted">SECRETS</span> and{" "}
             <span className="text-muted">SIZE</span> are deterministic. Overall is PASS only if every lane passes.
           </p>
+
+          {history.length > 0 && (
+            <div className="mt-8">
+              <div className="flex items-center justify-between border-b border-line/70 pb-2 mb-2.5">
+                <span className="font-mono text-[12px] tracking-[0.22em] text-fg">RECENT</span>
+                <button
+                  onClick={() => setHistory(clearHistory())}
+                  className="font-mono text-[10px] tracking-[0.12em] text-dim hover:text-fail transition-colors"
+                >
+                  CLEAR
+                </button>
+              </div>
+              <div className="rounded-lg border border-line bg-surface/30 divide-y divide-line/60 overflow-hidden">
+                {history.map((h) => (
+                  <button
+                    key={h.id}
+                    onClick={() => restore(h)}
+                    title="view this run"
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-surface transition-colors"
+                  >
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${h.result.verdict === "PASS" ? "bg-pass" : "bg-fail"}`} />
+                    <span className="flex-1 min-w-0 truncate font-sans text-[12.5px] text-muted">{h.task || "(no task)"}</span>
+                    <span className="font-mono text-[10.5px] text-dim shrink-0">{h.result.totalFiles}f</span>
+                    <span
+                      className={`font-mono text-[11px] tracking-wide shrink-0 ${h.result.verdict === "PASS" ? "text-pass" : "text-fail"}`}
+                    >
+                      {h.result.verdict}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
       </main>
     </div>
