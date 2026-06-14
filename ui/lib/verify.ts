@@ -79,7 +79,7 @@ function laneFromAnswers(answers: Answer[], lane: LaneName): LaneResult | null {
       try {
         obj = JSON.parse(s);
       } catch {
-        const m = s.match(/\{[^{}]*"lane"[^{}]*\}/s);
+        const m = s.match(/\{[^{}]*"lane"[^{}]*\}/);
         if (!m) continue;
         try {
           obj = JSON.parse(m[0]);
@@ -101,11 +101,13 @@ function pipePath(name: string): string {
   return path.join(dir, name);
 }
 
+type UsePipeline = NonNullable<Parameters<RocketRideClient["use"]>[0]>["pipeline"];
+
 /** Load a .pipe file and stamp a fresh project_id so each deploy is a clean instance. */
-function loadPipe(name: string): Record<string, unknown> {
+function loadPipe(name: string): UsePipeline {
   const cfg = JSON.parse(readFileSync(pipePath(name), "utf8")) as Record<string, unknown>;
   cfg.project_id = randomUUID();
-  return cfg;
+  return cfg as unknown as UsePipeline;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
