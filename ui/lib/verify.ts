@@ -97,24 +97,38 @@ function loadPipe(name: string): UsePipeline {
 const JUDGE_MODEL_NODES: Record<string, { node: string; model: string; keyEnv: string }> = {
   "gemini-flash-lite": { node: "llm_gemini", model: "gemini-3.1-flash-lite-preview", keyEnv: "ROCKETRIDE_GEMINI_KEY" },
   "gemini-pro": { node: "llm_gemini", model: "gemini-3.1-pro-preview", keyEnv: "ROCKETRIDE_GEMINI_KEY" },
-  "claude-sonnet": { node: "llm_anthropic", model: "claude-sonnet-4-6", keyEnv: "ROCKETRIDE_ANTHROPIC_KEY" },
 };
 
-function loadJudgePipe(modelKey: string): UsePipeline {
+function loadJudgePipe(modelKey: string, orModel?: string): UsePipeline {
   const cfg = JSON.parse(readFileSync(pipePath("verifier.pipe"), "utf8")) as {
     components: Array<Record<string, unknown>>;
     [k: string]: unknown;
   };
   cfg.project_id = randomUUID();
-  const m = JUDGE_MODEL_NODES[modelKey] ?? JUDGE_MODEL_NODES["gemini-flash-lite"];
   const llm = cfg.components.find((c) => String(c.id).startsWith("llm_"));
   if (llm) {
-    llm.provider = m.node;
-    llm.config = {
-      profile: "custom",
-      custom: { model: m.model, modelTotalTokens: 1000000, outputTokens: 8192, apikey: `\${${m.keyEnv}}` },
-      parameters: {},
-    };
+    if (modelKey === "openrouter") {
+      // Any OpenRouter model through the OpenAI-compatible node — one key unlocks all.
+      llm.provider = "llm_openai_api";
+      llm.config = {
+        profile: "custom",
+        custom: {
+          model: (orModel || "anthropic/claude-sonnet-4.6").trim(),
+          base_url: "https://openrouter.ai/api/v1",
+          modelTotalTokens: 1000000,
+          apikey: "${ROCKETRIDE_OPENROUTER_KEY}",
+        },
+        parameters: {},
+      };
+    } else {
+      const m = JUDGE_MODEL_NODES[modelKey] ?? JUDGE_MODEL_NODES["gemini-flash-lite"];
+      llm.provider = m.node;
+      llm.config = {
+        profile: "custom",
+        custom: { model: m.model, modelTotalTokens: 1000000, outputTokens: 8192, apikey: `\${${m.keyEnv}}` },
+        parameters: {},
+      };
+    }
   }
   return cfg as unknown as UsePipeline;
 }
@@ -124,6 +138,8 @@ async function runLane(client: any, token: string, text: string): Promise<LaneRe
   const q = new Question();
   q.addQuestion(text);
   const resp = await client.chat({ token, question: q });
+  const rErr = (resp as Record<string, unknown> | null)?.error as { message?: string } | undefined;
+  if (rErr?.message) return { lane: "run", verdict: "ERROR", detail: `engine: ${rErr.message}` };
   const answers: unknown[] = Array.isArray(resp?.answers) ? resp.answers : [];
   return laneFromAnswers(answers, "run") ?? { lane: "run", verdict: "ERROR", detail: "no run verdict parsed" };
 }
@@ -134,19 +150,30 @@ async function judgeLane(client: any, token: string, text: string): Promise<Lane
   q.addInstruction("Role", JUDGE_INSTRUCTION);
   q.addQuestion(text);
   const resp = await client.chat({ token, question: q });
+  const jErr = (resp as Record<string, unknown> | null)?.error as { message?: string } | undefined;
+  if (jErr?.message) return { lane: "judge", verdict: "ERROR", detail: `engine: ${jErr.message}` };
   const answers: unknown[] = Array.isArray(resp?.answers) ? resp.answers : [];
-  const first = answers[0];
-  let obj: unknown = first;
-  if (typeof first === "string") {
-    try {
-      obj = JSON.parse(first);
-    } catch {
-      obj = null;
+  // robust across providers (Gemini auto-parses; Claude may wrap JSON in prose/fences)
+  for (const a of answers) {
+    let obj: unknown = a;
+    if (typeof obj === "string") {
+      const s = obj.trim().replace(/^```[a-zA-Z]*\n?/, "").replace(/\n?```$/, "").trim();
+      try {
+        obj = JSON.parse(s);
+      } catch {
+        const m = s.match(/\{[^{}]*"verdict"[^{}]*\}/);
+        if (!m) continue;
+        try {
+          obj = JSON.parse(m[0]);
+        } catch {
+          continue;
+        }
+      }
     }
-  }
-  if (obj && typeof obj === "object" && "verdict" in (obj as object)) {
-    const o = obj as Record<string, unknown>;
-    return { lane: "judge", verdict: (o.verdict as Verdict) ?? "ERROR", detail: String(o.detail ?? "") };
+    if (obj && typeof obj === "object" && "verdict" in (obj as object)) {
+      const o = obj as Record<string, unknown>;
+      return { lane: "judge", verdict: (o.verdict as Verdict) ?? "ERROR", detail: String(o.detail ?? "") };
+    }
   }
   return { lane: "judge", verdict: "ERROR", detail: "no judge verdict parsed" };
 }
@@ -189,7 +216,7 @@ function aggregate(results: FileResult[]): Pick<VerifyResult, "summary" | "verdi
   return { summary, verdict, reason };
 }
 
-export async function verify(input: { task: string; diff: string; model?: string }): Promise<VerifyResult> {
+export async function verify(input: { task: string; diff: string; model?: string; orModel?: string }): Promise<VerifyResult> {
   const started = Date.now();
   const fileDiffs = splitDiffByFile(input.diff);
   const deepFiles = selectDeepFiles(fileDiffs, MAX_DEEP);
@@ -214,7 +241,7 @@ export async function verify(input: { task: string; diff: string; model?: string
     await client.connect();
     try {
       const { token: runTok } = await client.use({ pipeline: loadPipe("run-check.pipe") });
-      const { token: judgeTok } = await client.use({ pipeline: loadJudgePipe(input.model ?? "gemini-flash-lite") });
+      const { token: judgeTok } = await client.use({ pipeline: loadJudgePipe(input.model ?? "gemini-flash-lite", input.orModel) });
       await pool(deepFiles, CONCURRENCY, async (fd) => {
         const text = `TASK: ${input.task}\nFILE: ${fd.file}\nDIFF:\n${fd.diff}`;
         const fr = byFile.get(fd.file)!;
