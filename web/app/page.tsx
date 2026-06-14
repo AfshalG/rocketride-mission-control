@@ -35,6 +35,9 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [hookLive, setHookLive] = useState(false);
+  const [prContext, setPrContext] = useState<{ ref: string; url: string } | null>(null);
+  const [posting, setPosting] = useState(false);
+  const [postMsg, setPostMsg] = useState<{ kind: "ok" | "err"; text: string; url?: string } | null>(null);
   const lastHookKey = useRef<string | null>(null);
   const firstPoll = useRef(true);
 
@@ -115,6 +118,8 @@ export default function Home() {
     setError("");
     setPrMsg(null);
     setHookLive(false);
+    setPrContext(null);
+    setPostMsg(null);
   }
 
   async function copyComment() {
@@ -125,6 +130,26 @@ export default function Home() {
       setTimeout(() => setCopied(false), 1600);
     } catch {
       /* clipboard blocked */
+    }
+  }
+
+  async function postToPr() {
+    if (!prContext || !result || posting) return;
+    setPosting(true);
+    setPostMsg(null);
+    try {
+      const res = await fetch("/api/pr/comment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ref: prContext.ref, body: formatVerdictMarkdown(result, modelLabel) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to post.");
+      setPostMsg({ kind: "ok", text: `posted to ${prContext.ref}`, url: data.url });
+    } catch (e) {
+      setPostMsg({ kind: "err", text: e instanceof Error ? e.message : "Failed to post." });
+    } finally {
+      setPosting(false);
     }
   }
 
@@ -145,6 +170,8 @@ export default function Home() {
       setStatus("idle");
       setResult(null);
       setError("");
+      setPrContext({ ref: data.ref, url: data.url });
+      setPostMsg(null);
       setPrMsg({
         kind: "ok",
         text: `Loaded ${data.ref}: "${data.title}"${data.truncated ? " (diff truncated)" : ""} — review and run verification.`,
@@ -187,6 +214,9 @@ export default function Home() {
     setStatus("idle");
     setResult(null);
     setError("");
+    setPrContext(null);
+    setPostMsg(null);
+    setHookLive(false);
   }
 
   return (
@@ -473,12 +503,36 @@ export default function Home() {
           )}
 
           {status === "done" && result && (
-            <button
-              onClick={copyComment}
-              className="mt-5 self-start font-mono text-[11px] tracking-[0.12em] text-muted border border-line rounded-md px-3.5 py-2 hover:border-accent hover:text-fg transition-colors"
-            >
-              {copied ? "✓ COPIED" : "COPY AS PR COMMENT"}
-            </button>
+            <div className="mt-5 flex flex-col gap-2 items-start">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={copyComment}
+                  className="font-mono text-[11px] tracking-[0.12em] text-muted border border-line rounded-md px-3.5 py-2 hover:border-accent hover:text-fg transition-colors"
+                >
+                  {copied ? "✓ COPIED" : "COPY AS PR COMMENT"}
+                </button>
+                {prContext && (
+                  <button
+                    onClick={postToPr}
+                    disabled={posting}
+                    className="font-mono text-[11px] tracking-[0.12em] text-muted border border-line rounded-md px-3.5 py-2 hover:border-accent hover:text-fg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {posting ? "POSTING…" : `POST TO ${prContext.ref} →`}
+                  </button>
+                )}
+              </div>
+              {postMsg && (
+                <div className={`font-sans text-[12px] ${postMsg.kind === "ok" ? "text-pass" : "text-fail"}`}>
+                  {postMsg.kind === "ok" && postMsg.url ? (
+                    <a href={postMsg.url} target="_blank" rel="noreferrer" className="underline hover:text-fg">
+                      ✓ {postMsg.text} — view comment
+                    </a>
+                  ) : (
+                    postMsg.text
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
           <p className="mt-5 font-sans text-[12.5px] leading-relaxed text-dim">

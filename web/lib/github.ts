@@ -75,3 +75,22 @@ export async function fetchPr(ref: PrRef): Promise<PrResult> {
     truncated,
   };
 }
+
+/** Post a comment to a PR (needs a token with write access to that repo). */
+export async function postPrComment(ref: PrRef, body: string): Promise<{ url: string }> {
+  if (!process.env.GITHUB_TOKEN) {
+    throw new Error("Posting needs a GITHUB_TOKEN with repo write access — set it in web/.env.local.");
+  }
+  const api = `https://api.github.com/repos/${ref.owner}/${ref.repo}/issues/${ref.number}/comments`;
+  const res = await fetch(api, {
+    method: "POST",
+    headers: { ...headers("application/vnd.github+json"), "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+  if (res.status === 403 || res.status === 404) {
+    throw new Error(`No write access to ${ref.owner}/${ref.repo} — use a PR you can comment on.`);
+  }
+  if (!res.ok) throw new Error(`GitHub API error posting the comment (${res.status}).`);
+  const data = (await res.json()) as { html_url?: string };
+  return { url: data.html_url || `https://github.com/${ref.owner}/${ref.repo}/pull/${ref.number}` };
+}
