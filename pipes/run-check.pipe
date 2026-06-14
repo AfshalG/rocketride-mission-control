@@ -3,8 +3,24 @@
     {
       "id": "chat_1",
       "provider": "chat",
-      "config": { "hideForm": true, "mode": "Source", "parameters": {}, "type": "chat" },
-      "ui": { "position": { "x": 20, "y": 200 }, "measured": { "width": 150, "height": 66 }, "nodeType": "default", "formDataValid": true }
+      "config": {
+        "hideForm": true,
+        "mode": "Source",
+        "parameters": {},
+        "type": "chat"
+      },
+      "ui": {
+        "position": {
+          "x": 20,
+          "y": 200
+        },
+        "measured": {
+          "width": 150,
+          "height": 66
+        },
+        "nodeType": "default",
+        "formDataValid": true
+      }
     },
     {
       "id": "agent_run_1",
@@ -12,20 +28,56 @@
       "config": {
         "agent_description": "Run-check lane: executes the diff's code in the python sandbox and reports whether it works.",
         "instructions": [
-          "You are the RUN-CHECK lane of a code-change verifier. The message contains a TASK and a DIFF (unified git diff). Use the python tool to ACTUALLY execute the code added in the DIFF: define the added functions/classes, call them with simple representative inputs, and assert basic expected behaviour. If it raises or behaves wrongly, that is a failure.",
+          "You are the RUN-CHECK lane of a code-change verifier. The message contains a TASK and a DIFF (unified git diff). Use the python tool to ACTUALLY execute the code added in the DIFF. IMPORTANT: do NOT import the file or its module — the file does not exist in the sandbox. Instead, COPY the added function/class source (the '+' lines) directly into your script, then call it with simple representative inputs and assert basic expected behaviour. If the code itself raises or behaves wrongly, that is a failure; a missing-import or file-not-found is NOT a failure of the code.",
           "When done, reply with ONLY one minified JSON object: {\"lane\":\"run\",\"verdict\":\"PASS or FAIL\",\"detail\":\"<what you ran and the outcome>\"}. No prose, no markdown, no backticks. PASS only if the code executes and behaves sensibly."
         ],
         "parameters": {}
       },
-      "ui": { "position": { "x": 240, "y": 200 }, "measured": { "width": 150, "height": 86 }, "nodeType": "default", "formDataValid": true },
-      "input": [ { "lane": "questions", "from": "chat_1" } ]
+      "ui": {
+        "position": {
+          "x": 240,
+          "y": 200
+        },
+        "measured": {
+          "width": 150,
+          "height": 86
+        },
+        "nodeType": "default",
+        "formDataValid": true
+      },
+      "input": [
+        {
+          "lane": "questions",
+          "from": "chat_1"
+        }
+      ]
     },
     {
       "id": "tool_python_1",
       "provider": "tool_python",
-      "config": { "type": "tool_python", "timeout": 30, "allowedModules": [] },
-      "ui": { "position": { "x": 240, "y": 380 }, "measured": { "width": 150, "height": 40 }, "nodeType": "default", "formDataValid": true },
-      "control": [ { "classType": "tool", "from": "agent_run_1" } ]
+      "config": {
+        "type": "tool_python",
+        "timeout": 30,
+        "allowedModules": []
+      },
+      "ui": {
+        "position": {
+          "x": 240,
+          "y": 380
+        },
+        "measured": {
+          "width": 150,
+          "height": 40
+        },
+        "nodeType": "default",
+        "formDataValid": true
+      },
+      "control": [
+        {
+          "classType": "tool",
+          "from": "agent_run_1"
+        }
+      ]
     },
     {
       "id": "llm_1",
@@ -40,19 +92,57 @@
         },
         "parameters": {}
       },
-      "ui": { "position": { "x": 420, "y": 380 }, "measured": { "width": 150, "height": 66 }, "nodeType": "default", "formDataValid": true },
-      "control": [ { "classType": "llm", "from": "agent_run_1" } ]
+      "ui": {
+        "position": {
+          "x": 420,
+          "y": 380
+        },
+        "measured": {
+          "width": 150,
+          "height": 66
+        },
+        "nodeType": "default",
+        "formDataValid": true
+      },
+      "control": [
+        {
+          "classType": "llm",
+          "from": "agent_run_1"
+        }
+      ]
     },
     {
       "id": "response_answers_1",
       "provider": "response_answers",
-      "config": { "laneName": "answers" },
-      "ui": { "position": { "x": 460, "y": 200 }, "measured": { "width": 150, "height": 66 }, "nodeType": "default", "formDataValid": true },
-      "input": [ { "lane": "answers", "from": "agent_run_1" } ]
+      "config": {
+        "laneName": "answers"
+      },
+      "ui": {
+        "position": {
+          "x": 460,
+          "y": 200
+        },
+        "measured": {
+          "width": 150,
+          "height": 66
+        },
+        "nodeType": "default",
+        "formDataValid": true
+      },
+      "input": [
+        {
+          "lane": "answers",
+          "from": "agent_run_1"
+        }
+      ]
     }
   ],
   "source": "chat_1",
-  "project_id": "2c5d8e91-4a3b-4c7d-8e1f-3a2b1c0d9e8f",
-  "viewport": { "x": 0, "y": 0, "zoom": 1 },
+  "project_id": "4c281aa6-e23a-4fd1-b3cd-ad419b51a131",
+  "viewport": {
+    "x": 0,
+    "y": 0,
+    "zoom": 1
+  },
   "version": 1
 }

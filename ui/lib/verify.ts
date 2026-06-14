@@ -1,34 +1,25 @@
 /**
- * Mission Control verifier — Option A orchestration in TypeScript.
- * Two RocketRide pipe lanes (run, judge) fired concurrently + two deterministic
- * lanes (secrets, size). Ported from the proven Python runner.
+ * Mission Control verifier — per-file Option-A orchestration.
+ * Splits the diff by file; runs deterministic lanes (secrets, size) on every file and
+ * the LLM lanes (run, judge) on the top code files; aggregates into one verdict + a matrix.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { RocketRideClient, Question } from "rocketride";
+import type { LaneName, Verdict, LaneResult, FileResult, VerifyResult } from "./types";
+import { LANE_ORDER } from "./types";
+import { splitDiffByFile, selectDeepFiles } from "./diff";
 
-export type LaneName = "run" | "secrets" | "size" | "judge";
-export type Verdict = "PASS" | "FAIL" | "ERROR";
-
-export interface LaneResult {
-  lane: LaneName;
-  verdict: Verdict;
-  detail: string;
-}
-
-export interface VerifyResult {
-  verdict: "PASS" | "FAIL";
-  reason: string;
-  lanes: LaneResult[];
-  elapsedMs: number;
-}
+const MAX_DEEP = 6; // how many code files get the (expensive) LLM lanes
+const CONCURRENCY = 3; // files deep-checked in parallel
 
 const JUDGE_INSTRUCTION =
-  "You are the JUDGE lane of a code-change verifier. The message contains a TASK and a DIFF. " +
-  "Decide whether the DIFF correctly and completely accomplishes the TASK (correctness, completeness, " +
-  "obvious bugs). Reply with ONLY a JSON object: " +
-  '{"lane":"judge","verdict":"PASS or FAIL","detail":"<reasoning>"}.';
+  "You are the JUDGE lane of a code-change verifier, reviewing the diff for a SINGLE file. " +
+  "The message gives the overall TASK (for context) and this one file's DIFF. Judge ONLY whether " +
+  "THIS file's change is internally correct and free of obvious bugs — does its code do what it " +
+  "plainly intends, without errors? Do NOT fail it for work that belongs in other files. " +
+  'Reply with ONLY a JSON object: {"lane":"judge","verdict":"PASS or FAIL","detail":"<reasoning>"}.';
 
 const SECRET_PATTERNS: RegExp[] = [
   /sk-[A-Za-z0-9]{16,}/,
@@ -39,43 +30,35 @@ const SECRET_PATTERNS: RegExp[] = [
 ];
 
 function addedLines(diff: string): string[] {
-  return diff
-    .split("\n")
-    .filter((l) => l.startsWith("+") && !l.startsWith("+++"))
-    .map((l) => l.slice(1));
+  return diff.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++")).map((l) => l.slice(1));
 }
 
 export function secretsCheck(diff: string): LaneResult {
   const body = addedLines(diff).join("\n");
   for (const re of SECRET_PATTERNS) {
     const m = body.match(re);
-    if (m) {
-      return { lane: "secrets", verdict: "FAIL", detail: `hardcoded secret detected: ${m[0].slice(0, 40)}` };
-    }
+    if (m) return { lane: "secrets", verdict: "FAIL", detail: `hardcoded secret detected: ${m[0].slice(0, 40)}` };
   }
   return { lane: "secrets", verdict: "PASS", detail: "no hardcoded secrets or API keys in added lines" };
 }
 
 export function sizeCheck(task: string, diff: string): LaneResult {
   const adds = addedLines(diff);
-  const files = (diff.match(/^diff --git /gm) ?? []).length || (diff.match(/^\+\+\+ /gm) ?? []).length;
   const chars = adds.reduce((n, l) => n + l.length, 0);
-  const bloated = adds.length > 150 || files > 10;
+  const bloated = adds.length > 150;
   return {
     lane: "size",
     verdict: bloated ? "FAIL" : "PASS",
-    detail: `+${adds.length} lines, ${files} file(s), ${chars} chars${bloated ? " — runaway/bloated for the task" : ""}`,
+    detail: `+${adds.length} lines, ${chars} chars${bloated ? " — runaway/bloated for the task" : ""}`,
   };
 }
 
-type Answer = unknown;
-
-function laneFromAnswers(answers: Answer[], lane: LaneName): LaneResult | null {
+function laneFromAnswers(answers: unknown[], lane: LaneName): LaneResult | null {
   let found: LaneResult | null = null;
   for (const a of answers) {
     let obj: unknown = a;
     if (typeof obj === "string") {
-      let s = obj.trim().replace(/^```[a-zA-Z]*\n?/, "").replace(/\n?```$/, "").trim();
+      const s = obj.trim().replace(/^```[a-zA-Z]*\n?/, "").replace(/\n?```$/, "").trim();
       try {
         obj = JSON.parse(s);
       } catch {
@@ -103,7 +86,6 @@ function pipePath(name: string): string {
 
 type UsePipeline = NonNullable<Parameters<RocketRideClient["use"]>[0]>["pipeline"];
 
-/** Load a .pipe file and stamp a fresh project_id so each deploy is a clean instance. */
 function loadPipe(name: string): UsePipeline {
   const cfg = JSON.parse(readFileSync(pipePath(name), "utf8")) as Record<string, unknown>;
   cfg.project_id = randomUUID();
@@ -115,7 +97,7 @@ async function runLane(client: any, token: string, text: string): Promise<LaneRe
   const q = new Question();
   q.addQuestion(text);
   const resp = await client.chat({ token, question: q });
-  const answers: Answer[] = Array.isArray(resp?.answers) ? resp.answers : [];
+  const answers: unknown[] = Array.isArray(resp?.answers) ? resp.answers : [];
   return laneFromAnswers(answers, "run") ?? { lane: "run", verdict: "ERROR", detail: "no run verdict parsed" };
 }
 
@@ -125,9 +107,16 @@ async function judgeLane(client: any, token: string, text: string): Promise<Lane
   q.addInstruction("Role", JUDGE_INSTRUCTION);
   q.addQuestion(text);
   const resp = await client.chat({ token, question: q });
-  const answers: Answer[] = Array.isArray(resp?.answers) ? resp.answers : [];
+  const answers: unknown[] = Array.isArray(resp?.answers) ? resp.answers : [];
   const first = answers[0];
-  const obj = typeof first === "string" ? safeJson(first) : first;
+  let obj: unknown = first;
+  if (typeof first === "string") {
+    try {
+      obj = JSON.parse(first);
+    } catch {
+      obj = null;
+    }
+  }
   if (obj && typeof obj === "object" && "verdict" in (obj as object)) {
     const o = obj as Record<string, unknown>;
     return { lane: "judge", verdict: (o.verdict as Verdict) ?? "ERROR", detail: String(o.detail ?? "") };
@@ -135,47 +124,91 @@ async function judgeLane(client: any, token: string, text: string): Promise<Lane
   return { lane: "judge", verdict: "ERROR", detail: "no judge verdict parsed" };
 }
 
-function safeJson(s: string): unknown {
-  try {
-    return JSON.parse(s);
-  } catch {
-    return null;
-  }
+async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let i = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      await fn(items[idx]);
+    }
+  });
+  await Promise.all(workers);
 }
 
-function synthesize(lanes: LaneResult[], elapsedMs: number): VerifyResult {
-  const order: LaneName[] = ["run", "secrets", "size", "judge"];
-  const sorted = [...lanes].sort((a, b) => order.indexOf(a.lane) - order.indexOf(b.lane));
-  const fails = sorted.filter((l) => l.verdict !== "PASS").map((l) => l.lane);
-  return {
-    verdict: fails.length === 0 ? "PASS" : "FAIL",
-    reason: fails.length === 0 ? "all lanes passed" : `failed: ${fails.join(", ")}`,
-    lanes: sorted,
-    elapsedMs,
-  };
+function base(file: string): string {
+  return file.split("/").pop() || file;
+}
+
+function aggregate(results: FileResult[]): Pick<VerifyResult, "summary" | "verdict" | "reason"> {
+  const summary: LaneResult[] = LANE_ORDER.map((lane) => {
+    const relevant = results.filter((r) => r.lanes[lane]);
+    if (relevant.length === 0) return { lane, verdict: "PASS" as Verdict, detail: "not run" };
+    // single file: keep the rich per-lane explanation
+    if (relevant.length === 1) {
+      const only = relevant[0].lanes[lane]!;
+      return { lane, verdict: only.verdict, detail: only.detail };
+    }
+    const failed = relevant.filter((r) => r.lanes[lane]!.verdict !== "PASS");
+    if (failed.length) {
+      const names = failed.map((r) => base(r.file));
+      const detail = names.slice(0, 4).join(", ") + (names.length > 4 ? ` +${names.length - 4}` : "");
+      return { lane, verdict: "FAIL" as Verdict, detail };
+    }
+    return { lane, verdict: "PASS" as Verdict, detail: `${relevant.length} files clean` };
+  });
+  const verdict = summary.every((s) => s.verdict === "PASS") ? "PASS" : "FAIL";
+  const fails = summary.filter((s) => s.verdict !== "PASS").map((s) => s.lane);
+  const reason = verdict === "PASS" ? "all lanes passed" : `failed: ${fails.join(", ")}`;
+  return { summary, verdict, reason };
 }
 
 export async function verify(input: { task: string; diff: string }): Promise<VerifyResult> {
-  const text = `TASK: ${input.task}\nDIFF:\n${input.diff}`;
-  const uri = process.env.ROCKETRIDE_URI;
-  if (!uri) throw new Error("ROCKETRIDE_URI is not set (the RocketRide engine WebSocket URI).");
-
   const started = Date.now();
-  const client = new RocketRideClient({ uri, auth: process.env.ROCKETRIDE_APIKEY ?? "local" });
-  await client.connect();
-  try {
-    const { token: runTok } = await client.use({ pipeline: loadPipe("run-check.pipe") });
-    const { token: judgeTok } = await client.use({ pipeline: loadPipe("verifier.pipe") });
+  const fileDiffs = splitDiffByFile(input.diff);
+  const deepFiles = selectDeepFiles(fileDiffs, MAX_DEEP);
+  const deepSet = new Set(deepFiles.map((f) => f.file));
 
-    const [runRes, judgeRes] = await Promise.all([
-      runLane(client, runTok, text),
-      judgeLane(client, judgeTok, text),
-    ]);
+  const results: FileResult[] = fileDiffs.map((fd) => ({
+    file: fd.file,
+    deepChecked: deepSet.has(fd.file),
+    lanes: {
+      run: null,
+      judge: null,
+      secrets: secretsCheck(fd.diff),
+      size: sizeCheck(input.task, fd.diff),
+    },
+  }));
+  const byFile = new Map(results.map((r) => [r.file, r]));
 
-    const lanes = [runRes, secretsCheck(input.diff), sizeCheck(input.task, input.diff), judgeRes];
-    await Promise.allSettled([client.terminate(runTok), client.terminate(judgeTok)]);
-    return synthesize(lanes, Date.now() - started);
-  } finally {
-    await client.disconnect();
+  if (deepFiles.length > 0) {
+    const uri = process.env.ROCKETRIDE_URI;
+    if (!uri) throw new Error("ROCKETRIDE_URI is not set (the RocketRide engine WebSocket URI).");
+    const client = new RocketRideClient({ uri, auth: process.env.ROCKETRIDE_APIKEY ?? "local" });
+    await client.connect();
+    try {
+      const { token: runTok } = await client.use({ pipeline: loadPipe("run-check.pipe") });
+      const { token: judgeTok } = await client.use({ pipeline: loadPipe("verifier.pipe") });
+      await pool(deepFiles, CONCURRENCY, async (fd) => {
+        const text = `TASK: ${input.task}\nFILE: ${fd.file}\nDIFF:\n${fd.diff}`;
+        const fr = byFile.get(fd.file)!;
+        const [run, judge] = await Promise.all([runLane(client, runTok, text), judgeLane(client, judgeTok, text)]);
+        fr.lanes.run = run;
+        fr.lanes.judge = judge;
+      });
+      await Promise.allSettled([client.terminate(runTok), client.terminate(judgeTok)]);
+    } finally {
+      await client.disconnect();
+    }
   }
+
+  const { summary, verdict, reason } = aggregate(results);
+  return {
+    verdict,
+    reason,
+    summary,
+    files: results,
+    totalFiles: fileDiffs.length,
+    deepCheckedCount: deepFiles.length,
+    elapsedMs: Date.now() - started,
+  };
 }
