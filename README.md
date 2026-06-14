@@ -28,6 +28,15 @@ The point isn't the multiplier on a laptop — it's that parallelism here is a *
 choice* (fan out from `chat`, fan in to `response_answers`), **not hand-rolled concurrency
 code**. It scales with lane count, lane balance, and a production / multi-core engine.
 
+## Features
+
+- **Paste a `{task, diff}`** — or **load a GitHub PR by URL** (fetches the PR's title + diff).
+- **Per-file breakdown** — a large PR is split by file into a `file × lane` **matrix** that pinpoints exactly which file fails what; lockfiles & binaries skip the LLM lanes.
+- **Swappable judge model** — Gemini Flash-Lite / Pro, or **any OpenRouter model** (Claude, GPT, Llama…) through one key — by composing a different LLM node, no code change.
+- **Live Claude Code Stop-hook** — when your agent finishes, the diff is captured + verified automatically and the verdict appears in the app, no paste (`/api/hook`).
+- **Verdict → the PR** — copy it as a markdown comment, or post it straight to the GitHub PR.
+- **History** of recent runs (click to re-view).
+
 ## Status
 
 🚧 **In active development**, built in thin, independently demoable vertical slices:
@@ -37,6 +46,9 @@ code**. It scales with lane count, lane balance, and a production / multi-core e
 - [x] **Slice 2** — four parallel verification lanes + synthesis
 - [x] **Slice 3** — sequential-vs-parallel benchmark (~1.6× on the four-lane fan-out)
 - [x] **Slice 4** — verdict-card web UI (Next.js + RocketRide SDK)
+- [x] **Slice 5** — live Claude Code Stop-hook → automatic verdict in the app
+- [x] **Slice 6** — post the verdict to the GitHub PR
+- [ ] **Slice 7** — demo video + README polish *(in progress)*
 
 ## Why RocketRide
 
