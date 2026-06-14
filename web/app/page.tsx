@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { SAMPLES } from "@/lib/samples";
 import { formatVerdictMarkdown } from "@/lib/markdown";
@@ -34,9 +34,70 @@ export default function Home() {
   const [prMsg, setPrMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [hookLive, setHookLive] = useState(false);
+  const lastHookKey = useRef<string | null>(null);
+  const firstPoll = useRef(true);
 
   useEffect(() => {
     setHistory(loadHistory());
+  }, []);
+
+  // Poll for Stop-hook-triggered verifications and display them live.
+  useEffect(() => {
+    const poll = async () => {
+      let h: {
+        id?: string;
+        status?: string;
+        ts?: number;
+        task?: string;
+        diff?: string;
+        result?: VerifyResult;
+        error?: string;
+      } | null = null;
+      try {
+        h = await fetch("/api/hook/latest").then((r) => r.json());
+      } catch {
+        return;
+      }
+      if (!h?.id) return;
+      const key = `${h.id}:${h.status}`;
+      if (key === lastHookKey.current) return;
+      lastHookKey.current = key;
+      if (firstPoll.current) {
+        firstPoll.current = false;
+        return; // ignore a hook already in the store when the page loads
+      }
+      setHookLive(true);
+      setRunId(h.id);
+      if (h.status === "running") {
+        setTask(h.task ?? "");
+        setDiff(h.diff ?? "");
+        setResult(null);
+        setError("");
+        setStatus("running");
+      } else if (h.status === "done" && h.result) {
+        setTask(h.task ?? "");
+        setDiff(h.diff ?? "");
+        setResult(h.result);
+        setStatus("done");
+        setHistory(
+          pushHistory({
+            id: h.id,
+            ts: h.ts ?? Date.now(),
+            task: h.task ?? "",
+            diff: h.diff ?? "",
+            model: DEFAULT_JUDGE_MODEL,
+            orModel: DEFAULT_OPENROUTER_MODEL,
+            result: h.result,
+          }),
+        );
+      } else if (h.status === "error") {
+        setStatus("error");
+        setError(h.error || "hook verification failed");
+      }
+    };
+    const iv = setInterval(poll, 2500);
+    return () => clearInterval(iv);
   }, []);
 
   const byLane = (id: string) => result?.summary.find((l) => l.lane === id);
@@ -53,6 +114,7 @@ export default function Home() {
     setStatus("done");
     setError("");
     setPrMsg(null);
+    setHookLive(false);
   }
 
   async function copyComment() {
@@ -96,6 +158,7 @@ export default function Home() {
 
   async function run() {
     if (!diff.trim() || status === "running") return;
+    setHookLive(false);
     setStatus("running");
     setError("");
     setResult(null);
@@ -285,6 +348,12 @@ export default function Home() {
           <div className="mt-4 rounded-lg border border-line bg-surface/50 overflow-hidden">
             {/* overall banner */}
             <div className="px-6 py-5 border-b border-line">
+              {hookLive && (status === "running" || status === "done" || status === "error") && (
+                <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 font-mono text-[10px] tracking-[0.16em] text-accent">
+                  <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
+                  CAPTURED LIVE · CLAUDE CODE STOP-HOOK
+                </div>
+              )}
               <div className="flex items-end justify-between gap-4">
                 <div>
                   <div className="font-mono text-[11px] tracking-[0.2em] text-dim mb-1.5">OVERALL</div>
