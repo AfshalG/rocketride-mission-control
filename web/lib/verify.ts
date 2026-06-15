@@ -24,9 +24,13 @@ const JUDGE_INSTRUCTION =
   'Reply with ONLY a JSON object: {"lane":"judge","verdict":"PASS or FAIL","detail":"<reasoning>"}.';
 
 const SECRET_PATTERNS: RegExp[] = [
-  /sk-[A-Za-z0-9]{16,}/,
-  /ghp_[A-Za-z0-9]{20,}/,
-  /AKIA[0-9A-Z]{16}/,
+  /sk-[A-Za-z0-9]{16,}/, // OpenAI classic
+  /sk-ant-[A-Za-z0-9_-]{12,}/, // Anthropic
+  /sk-proj-[A-Za-z0-9_-]{12,}/, // OpenAI project key
+  /sk-or-v1-[A-Za-z0-9]{12,}/, // OpenRouter
+  /gh[oprsu]_[A-Za-z0-9]{20,}/, // GitHub tokens (ghp_/gho_/ghs_/ghu_/ghr_)
+  /AKIA[0-9A-Z]{16}/, // AWS access key id
+  /AIza[0-9A-Za-z_-]{35}/, // Google API key
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
   /(api[_-]?key|secret|password|token)\s*[=:]\s*["'][^"']{8,}["']/i,
 ];
