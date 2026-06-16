@@ -9,11 +9,15 @@ You give it `{task, diff}` — the task the agent was asked to do, and the git d
 produced — and it fans out **four verification lanes in parallel**, then synthesizes a
 single **PASS / FAIL** verdict with a per-lane breakdown.
 
+> **📺 [Watch the demo (~5 min) →](https://drive.google.com/file/d/1B7L4SM6t-25KsHHFqDhlYk4vPcQtpQQs/view?usp=sharing)** — Mission Control catching what a Claude Code agent just shipped, live.
+
+[![Mission Control — a FAIL verdict with the per-file matrix](web/public/demo.png)](https://drive.google.com/file/d/1B7L4SM6t-25KsHHFqDhlYk4vPcQtpQQs/view?usp=sharing)
+
 | Lane | How | What it checks |
 | --- | --- | --- |
 | **Run-check** | RocketRide: `agent` + `tool_python` | Does the code in the diff actually run / pass basic asserts? |
 | **Judge** | RocketRide: LLM (Gemini) | Is the change correct vs the stated task? |
-| **Secrets** | deterministic regex | Leaked API keys (`sk-…`, `ghp_…`) in the diff? |
+| **Secrets** | deterministic regex | Leaked API keys in the diff — `sk-…`, `sk-ant-…`, `ghp_…`, AWS, Google? |
 | **Size / cost** | deterministic line/char count | Runaway diff vs the task — the idea behind Claude Code's token-budget tracker, as a lane |
 
 The two LLM/execution lanes run on **RocketRide's C++ runtime**, fired concurrently and
@@ -48,7 +52,7 @@ code**. It scales with lane count, lane balance, and a production / multi-core e
 - [x] **Slice 4** — verdict-card web UI (Next.js + RocketRide SDK)
 - [x] **Slice 5** — live Claude Code Stop-hook → automatic verdict in the app
 - [x] **Slice 6** — post the verdict to the GitHub PR
-- [ ] **Slice 7** — demo video + README polish *(in progress)*
+- [x] **Slice 7** — demo video + README polish
 
 ## Why RocketRide
 
