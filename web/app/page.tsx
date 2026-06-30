@@ -48,7 +48,9 @@ export default function Home() {
   } | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const lastHookKey = useRef<string | null>(null);
-  const firstPoll = useRef(true);
+  // Hook states stamped at/before mount are stale (a leftover from a previous session);
+  // only render verdicts produced after the page loaded.
+  const mountTs = useRef<number>(Date.now());
 
   useEffect(() => {
     setHistory(loadHistory());
@@ -72,13 +74,12 @@ export default function Home() {
         return;
       }
       if (!h?.id) return;
-      const key = `${h.id}:${h.status}`;
+      // ignore a verdict that predates this page load (stale from a prior session)
+      if (typeof h.ts === "number" && h.ts <= mountTs.current) return;
+      // key on ts+status so every new verdict (and running→done) re-renders the lanes/diff
+      const key = `${h.ts}:${h.status}`;
       if (key === lastHookKey.current) return;
       lastHookKey.current = key;
-      if (firstPoll.current) {
-        firstPoll.current = false;
-        return; // ignore a hook already in the store when the page loads
-      }
       setHookLive(true);
       setRunId(h.id);
       if (h.status === "running") {
