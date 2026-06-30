@@ -38,6 +38,15 @@ export default function Home() {
   const [prContext, setPrContext] = useState<{ ref: string; url: string } | null>(null);
   const [posting, setPosting] = useState(false);
   const [postMsg, setPostMsg] = useState<{ kind: "ok" | "err"; text: string; url?: string } | null>(null);
+  const [loop, setLoop] = useState<{
+    active: boolean;
+    status?: string;
+    attempt?: number;
+    cap?: number;
+    sessionId?: string;
+    attempts?: { n: number; verdict: string; failures: string[] }[];
+  } | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const lastHookKey = useRef<string | null>(null);
   const firstPoll = useRef(true);
 
@@ -102,6 +111,36 @@ export default function Home() {
     const iv = setInterval(poll, 2500);
     return () => clearInterval(iv);
   }, []);
+
+  // Poll live auto-fix-loop state (status + attempt timeline) for the loop panel.
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const s = await fetch("/api/loop/state").then((r) => r.json());
+        setLoop(s);
+        if (s?.status !== "fixing") setCancelling(false);
+      } catch {
+        /* ignore */
+      }
+    };
+    const iv = setInterval(poll, 2500);
+    poll();
+    return () => clearInterval(iv);
+  }, []);
+
+  async function cancelLoop() {
+    if (!loop?.sessionId || cancelling) return;
+    setCancelling(true);
+    try {
+      await fetch("/api/loop/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: loop.sessionId }),
+      });
+    } catch {
+      setCancelling(false);
+    }
+  }
 
   const byLane = (id: string) => result?.summary.find((l) => l.lane === id);
   const modelLabel =
@@ -374,6 +413,82 @@ export default function Home() {
             title="VERDICT"
             note={status === "done" && result ? `REPORT ${runId}` : "4 parallel lanes"}
           />
+
+          {loop?.active && (
+            <div className="mt-4 rounded-lg border border-line bg-surface/50 p-4">
+              <div className="flex items-center justify-between">
+                <div className="font-mono text-[11px] tracking-[0.2em] text-dim">AUTO-FIX LOOP</div>
+                {loop.status === "fixing" && (
+                  <button
+                    onClick={cancelLoop}
+                    disabled={cancelling}
+                    className="font-mono text-[10px] tracking-[0.12em] rounded border border-line px-2 py-1 text-muted hover:text-fg transition-colors disabled:opacity-50"
+                  >
+                    {cancelling ? "CANCELLING…" : "CANCEL"}
+                  </button>
+                )}
+              </div>
+              <div className="mt-2 flex items-center gap-2 font-mono text-sm">
+                {loop.status === "fixing" ? (
+                  <>
+                    <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
+                    <span className="text-accent">
+                      Auto-fixing · attempt {loop.attempt}/{loop.cap}
+                    </span>
+                  </>
+                ) : (
+                  <span
+                    className={
+                      loop.status === "passed"
+                        ? "text-pass"
+                        : loop.status === "cancelled"
+                          ? "text-muted"
+                          : loop.status === "capped"
+                            ? "text-fail"
+                            : "text-amber"
+                    }
+                  >
+                    {loop.status === "passed"
+                      ? "Passed — all blocking lanes green"
+                      : loop.status === "capped"
+                        ? "Stopped — needs a human"
+                        : loop.status === "cancelled"
+                          ? "Cancelled"
+                          : "Released (infra error)"}
+                  </span>
+                )}
+              </div>
+              {!!loop.attempts?.length && (
+                <div className="mt-3 flex flex-col gap-1.5">
+                  {loop.attempts.map((a) => (
+                    <div
+                      key={a.n}
+                      className="flex items-center justify-between font-mono text-[11px] text-muted"
+                    >
+                      <span>attempt {a.n}</span>
+                      <span
+                        className={
+                          a.verdict === "PASS"
+                            ? "text-pass"
+                            : a.verdict === "CANCELLED"
+                              ? "text-dim"
+                              : "text-fail"
+                        }
+                      >
+                        {a.verdict}
+                        {a.failures?.length ? ` · ${a.failures.map((f) => f.split(":")[0]).join(", ")}` : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {cancelling && (
+                <div className="mt-2 font-mono text-[10px] text-dim">
+                  cancels at the next checkpoint (after the agent&apos;s current turn)
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="mt-4 rounded-lg border border-line bg-surface/50 overflow-hidden">
             {/* overall banner */}
