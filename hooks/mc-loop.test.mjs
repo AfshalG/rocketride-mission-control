@@ -52,3 +52,16 @@ test("ERROR releases (infra safety)", () => {
   });
   assert.equal(d.block, false);
 });
+
+test("CANCELLED releases with a cancel note", () => {
+  const d = buildDecision({
+    verdict: "CANCELLED",
+    iteration: 2,
+    cap: 5,
+    capReached: false,
+    failures: [],
+    summary: "cancelled by user",
+  });
+  assert.equal(d.block, false);
+  assert.match(d.note, /cancel/i);
+});
