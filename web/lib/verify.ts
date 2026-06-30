@@ -8,6 +8,7 @@ import { RocketRideClient, Question } from "rocketride";
 import type { LaneName, Verdict, LaneResult, FileResult, VerifyResult } from "./types";
 import { LANE_ORDER } from "./types";
 import { splitDiffByFile, selectDeepFiles } from "./diff";
+import { secretsCheck, redactSecrets, addedLines } from "./secrets";
 // Pipes are embedded (imported) so they ship inside the serverless bundle on deploy —
 // not read from disk. Keep these in sync with /pipes/*.pipe (the canvas source of truth).
 import runCheckPipe from "./pipes/run-check.json";
@@ -22,31 +23,6 @@ const JUDGE_INSTRUCTION =
   "THIS file's change is internally correct and free of obvious bugs — does its code do what it " +
   "plainly intends, without errors? Do NOT fail it for work that belongs in other files. " +
   'Reply with ONLY a JSON object: {"lane":"judge","verdict":"PASS or FAIL","detail":"<reasoning>"}.';
-
-const SECRET_PATTERNS: RegExp[] = [
-  /sk-[A-Za-z0-9]{16,}/, // OpenAI classic
-  /sk-ant-[A-Za-z0-9_-]{12,}/, // Anthropic
-  /sk-proj-[A-Za-z0-9_-]{12,}/, // OpenAI project key
-  /sk-or-v1-[A-Za-z0-9]{12,}/, // OpenRouter
-  /gh[oprsu]_[A-Za-z0-9]{20,}/, // GitHub tokens (ghp_/gho_/ghs_/ghu_/ghr_)
-  /AKIA[0-9A-Z]{16}/, // AWS access key id
-  /AIza[0-9A-Za-z_-]{35}/, // Google API key
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
-  /(api[_-]?key|secret|password|token)\s*[=:]\s*["'][^"']{8,}["']/i,
-];
-
-function addedLines(diff: string): string[] {
-  return diff.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++")).map((l) => l.slice(1));
-}
-
-export function secretsCheck(diff: string): LaneResult {
-  const body = addedLines(diff).join("\n");
-  for (const re of SECRET_PATTERNS) {
-    const m = body.match(re);
-    if (m) return { lane: "secrets", verdict: "FAIL", detail: `hardcoded secret detected: ${m[0].slice(0, 40)}` };
-  }
-  return { lane: "secrets", verdict: "PASS", detail: "no hardcoded secrets or API keys in added lines" };
-}
 
 export function sizeCheck(task: string, diff: string): LaneResult {
   const adds = addedLines(diff);
@@ -257,6 +233,16 @@ export async function verify(input: { task: string; diff: string; model?: string
       await Promise.allSettled([client.terminate(runTok), client.terminate(judgeTok)]);
     } finally {
       await client.disconnect();
+    }
+  }
+
+  // Scrub any detected secret out of every lane detail before it leaves the verifier.
+  // The LLM lanes (run/judge) can echo the literal key in their free-text; we must not
+  // amplify the leak into the UI, PR comments, verdict history, or the hook's block reason.
+  for (const r of results) {
+    for (const lane of LANE_ORDER) {
+      const lr = r.lanes[lane];
+      if (lr) lr.detail = redactSecrets(lr.detail);
     }
   }
 
