@@ -20,7 +20,9 @@ export function buildDecision(resp) {
   }
   const note = !resp
     ? "released — no response"
-    : resp.verdict === "PASS"
+    : resp.verdict === "CANCELLED"
+      ? "released — cancelled by user"
+      : resp.verdict === "PASS"
       ? `released — all green (attempt ${resp.iteration})`
       : resp.capReached
         ? `released — still failing after ${resp.iteration} attempts; needs a human`
