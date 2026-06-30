@@ -381,7 +381,7 @@ export default function Home() {
               {hookLive && (status === "running" || status === "done" || status === "error") && (
                 <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 font-mono text-[10px] tracking-[0.16em] text-accent">
                   <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
-                  CAPTURED LIVE · CLAUDE CODE STOP-HOOK
+                  CAPTURED LIVE · CLAUDE CODE STOP-HOOK · AUTO-FIX LOOP
                 </div>
               )}
               <div className="flex items-end justify-between gap-4">
